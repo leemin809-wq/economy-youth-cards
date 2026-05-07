@@ -1,0 +1,212 @@
+{
+  "name": "경제청년 완전자동화 파이프라인",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 6 * * *" }]
+        }
+      },
+      "name": "매일 06:00 트리거",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.google.com/alerts/feeds/YOUR_ALERT_ID/rss",
+        "options": {}
+      },
+      "name": "Google Alerts RSS 수집",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "databaseId": "881f36826d22424fa896535a02815d8c",
+        "filterType": "manual",
+        "filters": {
+          "conditions": [{ "key": "상태", "condition": "equals", "value": "활성" }]
+        },
+        "limit": 1
+      },
+      "name": "Notion 활성 프롬프트 불러오기",
+      "type": "n8n-nodes-base.notion",
+      "position": [600, 200]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "databaseId": "abd6e246f7fa43198cecf89e9a1ad87d",
+        "filterType": "manual",
+        "filters": {
+          "conditions": [{ "key": "상태", "condition": "equals", "value": "활성" }]
+        },
+        "limit": 1
+      },
+      "name": "Notion TTS 템플릿 불러오기",
+      "type": "n8n-nodes-base.notion",
+      "position": [600, 350]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "databaseId": "ca0d8cd83aab49a0b95de8c052f2362c",
+        "filterType": "manual",
+        "filters": {
+          "conditions": [{ "key": "상태", "condition": "equals", "value": "활성" }]
+        },
+        "limit": 1
+      },
+      "name": "Notion 자막 스타일 불러오기",
+      "type": "n8n-nodes-base.notion",
+      "position": [600, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rssItems = $('Google Alerts RSS 수집').all();\nconst prompt = $('Notion 활성 프롬프트 불러오기').first().json;\nconst tts = $('Notion TTS 템플릿 불러오기').first().json;\nconst subtitle = $('Notion 자막 스타일 불러오기').first().json;\n\nconst newsText = rssItems.slice(0, 3).map(i => {\n  return `제목: ${i.json.title}\\n내용: ${i.json.contentSnippet || ''}`;\n}).join('\\n\\n');\n\nconst promptText = prompt.properties['프롬프트 내용'].rich_text[0]?.plain_text || '';\nconst finalPrompt = promptText.replace('{{news_content}}', newsText);\n\nreturn [{\n  json: {\n    finalPrompt,\n    ttsVoice: tts.properties['목소리'].select?.name || 'SunHiNeural',\n    ttsSpeed: tts.properties['재생 속도'].rich_text[0]?.plain_text || '1.1',\n    ttsOpening: tts.properties['오프닝 문구'].rich_text[0]?.plain_text || '',\n    ttsClosing: tts.properties['클로징 문구'].rich_text[0]?.plain_text || '',\n    subtitleParams: subtitle.properties['FFmpeg 파라미터'].rich_text[0]?.plain_text || '',\n    usedPromptName: prompt.properties['프롬프트 이름'].title[0]?.plain_text || '기본',\n    today: new Date().toISOString().split('T')[0]\n  }\n}];"
+      },
+      "name": "데이터 병합 & 프롬프트 조립",
+      "type": "n8n-nodes-base.code",
+      "position": [820, 350]
+    },
+    {
+      "parameters": {
+        "url": "https://api.anthropic.com/v1/messages",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model", "value": "claude-sonnet-4-20250514" },
+            { "name": "max_tokens", "value": "4096" },
+            { "name": "messages", "value": "=[{\"role\":\"user\",\"content\":\"{{ $json.finalPrompt }}\\n\\n반드시 JSON만 출력하세요. 마크다운 없이 순수 JSON만.\"}]" }
+          ]
+        }
+      },
+      "name": "Claude API 콘텐츠 생성",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1040, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst rawText = response.content[0].text;\n\nlet cardData;\ntry {\n  cardData = JSON.parse(rawText);\n} catch(e) {\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\}/);\n  cardData = JSON.parse(jsonMatch[0]);\n}\n\nconst meta = $('데이터 병합 & 프롬프트 조립').first().json;\nconst fullTTSScript = `${meta.ttsOpening} ${cardData.tts_script} ${meta.ttsClosing}`;\n\nreturn [{\n  json: {\n    cardData,\n    ttsVoice: meta.ttsVoice,\n    ttsSpeed: parseFloat(meta.ttsSpeed),\n    fullTTSScript,\n    subtitleParams: meta.subtitleParams,\n    today: meta.today,\n    usedPromptName: meta.usedPromptName,\n    youtubeTitle: cardData.youtube_title || `경제청년 | ${cardData.topic}`,\n    hashtags: cardData.hashtags || {}\n  }\n}];"
+      },
+      "name": "JSON 파싱 & 데이터 정리",
+      "type": "n8n-nodes-base.code",
+      "position": [1260, 350]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/leemin809-wq/economy-youth-cards/dispatches",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Accept", "value": "application/vnd.github.v3+json" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event_type", "value": "generate-cards" },
+            { "name": "client_payload", "value": "={{ JSON.stringify($json) }}" }
+          ]
+        }
+      },
+      "name": "GitHub Actions 카드 렌더링 트리거",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1480, 250]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/leemin809-wq/economy-youth-cards/dispatches",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Accept", "value": "application/vnd.github.v3+json" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event_type", "value": "generate-tts-video" },
+            { "name": "client_payload", "value": "={{ JSON.stringify($json) }}" }
+          ]
+        }
+      },
+      "name": "GitHub Actions TTS+영상 트리거",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1480, 450]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "databaseId": "2b68af6ddc674c168c3457dd0c2da139",
+        "properties": {
+          "values": {
+            "발행 제목": "={{ $('JSON 파싱 & 데이터 정리').first().json.youtubeTitle }}",
+            "전체 상태": "처리 중",
+            "사용 프롬프트": "={{ $('JSON 파싱 & 데이터 정리').first().json.usedPromptName }}",
+            "date:발행 날짜:start": "={{ $('JSON 파싱 & 데이터 정리').first().json.today }}",
+            "date:발행 날짜:is_datetime": 0
+          }
+        }
+      },
+      "name": "Notion 발행 로그 기록",
+      "type": "n8n-nodes-base.notion",
+      "position": [1700, 350]
+    }
+  ],
+  "connections": {
+    "매일 06:00 트리거": {
+      "main": [[{ "node": "Google Alerts RSS 수집", "type": "main", "index": 0 }]]
+    },
+    "Google Alerts RSS 수집": {
+      "main": [[
+        { "node": "Notion 활성 프롬프트 불러오기", "type": "main", "index": 0 },
+        { "node": "Notion TTS 템플릿 불러오기", "type": "main", "index": 0 },
+        { "node": "Notion 자막 스타일 불러오기", "type": "main", "index": 0 }
+      ]]
+    },
+    "Notion 활성 프롬프트 불러오기": {
+      "main": [[{ "node": "데이터 병합 & 프롬프트 조립", "type": "main", "index": 0 }]]
+    },
+    "Notion TTS 템플릿 불러오기": {
+      "main": [[{ "node": "데이터 병합 & 프롬프트 조립", "type": "main", "index": 0 }]]
+    },
+    "Notion 자막 스타일 불러오기": {
+      "main": [[{ "node": "데이터 병합 & 프롬프트 조립", "type": "main", "index": 0 }]]
+    },
+    "데이터 병합 & 프롬프트 조립": {
+      "main": [[{ "node": "Claude API 콘텐츠 생성", "type": "main", "index": 0 }]]
+    },
+    "Claude API 콘텐츠 생성": {
+      "main": [[{ "node": "JSON 파싱 & 데이터 정리", "type": "main", "index": 0 }]]
+    },
+    "JSON 파싱 & 데이터 정리": {
+      "main": [[
+        { "node": "GitHub Actions 카드 렌더링 트리거", "type": "main", "index": 0 },
+        { "node": "GitHub Actions TTS+영상 트리거", "type": "main", "index": 0 }
+      ]]
+    },
+    "GitHub Actions 카드 렌더링 트리거": {
+      "main": [[{ "node": "Notion 발행 로그 기록", "type": "main", "index": 0 }]]
+    },
+    "GitHub Actions TTS+영상 트리거": {
+      "main": [[{ "node": "Notion 발행 로그 기록", "type": "main", "index": 0 }]]
+    }
+  }
+}
