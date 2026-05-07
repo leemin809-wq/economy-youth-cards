@@ -110,7 +110,7 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "Bearer {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Authorization", "value": "Bearer {{ $env.GH_TOKEN }}" },
             { "name": "Accept", "value": "application/vnd.github.v3+json" },
             { "name": "Content-Type", "value": "application/json" }
           ]
@@ -134,7 +134,7 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "Bearer {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Authorization", "value": "Bearer {{ $env.GH_TOKEN }}" },
             { "name": "Accept", "value": "application/vnd.github.v3+json" },
             { "name": "Content-Type", "value": "application/json" }
           ]
