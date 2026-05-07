@@ -1,0 +1,15 @@
+{
+  "name": "economy-youth-automation",
+  "version": "1.0.0",
+  "description": "경제청년 카드뉴스 완전 자동화 시스템",
+  "scripts": {
+    "render": "node scripts/render-cards.js",
+    "srt": "python3 scripts/generate-srt.py pipeline_data.json output/subtitle.srt",
+    "upload-yt": "node scripts/upload-youtube.js",
+    "upload-ig": "node scripts/upload-instagram.js",
+    "upload-threads": "node scripts/upload-threads.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0"
+  }
+}
