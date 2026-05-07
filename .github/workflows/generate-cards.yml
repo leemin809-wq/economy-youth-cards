@@ -1,0 +1,52 @@
+name: 카드뉴스 PNG 렌더링
+
+on:
+  repository_dispatch:
+    types: [generate-cards]
+
+jobs:
+  render-cards:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 의존성 설치
+        run: |
+          npm install puppeteer
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: 카드 데이터 파일 생성
+        run: |
+          cat > card_data.json << 'JSONEOF'
+          ${{ toJSON(github.event.client_payload.cardData) }}
+          JSONEOF
+
+      - name: Puppeteer PNG 렌더링
+        run: node scripts/render-cards.js
+
+      - name: 인스타그램 업로드
+        run: node scripts/upload-instagram.js
+        env:
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+          IMAGE_BASE_URL: ${{ secrets.IMAGE_BASE_URL }}
+
+      - name: 스레드 업로드
+        run: node scripts/upload-threads.js
+        env:
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          IMAGE_BASE_URL: ${{ secrets.IMAGE_BASE_URL }}
+
+      - name: PNG 아티팩트 저장
+        uses: actions/upload-artifact@v4
+        with:
+          name: card-images-${{ github.run_id }}
+          path: output/cards/*.png
+          retention-days: 7
